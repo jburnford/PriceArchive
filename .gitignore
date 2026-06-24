@@ -1,0 +1,16 @@
+# Raw OCR pulled from Nibi (canonical source lives on /project/6080182; re-syncable)
+data/ocr/
+
+# Generated artifacts (regenerable from data/ocr via the pipeline scripts)
+build/
+*.duckdb
+*.duckdb.wal
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Backups left by the OCR repair pass (should not be here, but just in case)
+*.bad
+*.drift
