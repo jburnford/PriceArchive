@@ -95,7 +95,7 @@ def main():
         dd = norm_date(dates.get(it["item_id"], {}).get("date"))
         date_iso = hd or ld or dd
         src = "date:heuristic" if hd else ("date:llm" if ld else ("date:llm2" if dd else ""))
-        kind, kind_src = it["kind"], "heuristic"
+        kind, kind_src = it["kind"], it.get("kind_src", "heuristic")
         if it["kind"] == "document" and (e.get("doc_subtype") or "").lower() in CORRESP:
             kind, kind_src = "letter", "llm-reclass"
         return (it["item_id"], kind, it["kind"], kind_src, it["reel"],
