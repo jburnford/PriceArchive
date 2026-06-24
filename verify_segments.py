@@ -75,6 +75,21 @@ def main():
     ic = con.execute("SELECT sum(n_chars) FROM items").fetchone()[0]
     L.append(f"- page chars: {pc:,} | item chars: {ic:,} | ratio: {ic/max(pc,1):.2f}")
 
+    # summary coverage (the goal: per-source AND per-page summaries)
+    nit = con.execute("SELECT count(*) FROM items").fetchone()[0]
+    src_sum = con.execute("SELECT count(*) FROM items WHERE summary IS NOT NULL AND summary<>''").fetchone()[0]
+    sub_src = con.execute("SELECT count(*) FROM items WHERE summary IS NOT NULL AND n_chars>=150").fetchone()[0]
+    sub_tot = con.execute("SELECT count(*) FROM items WHERE n_chars>=150").fetchone()[0]
+    npg = con.execute("SELECT count(*) FROM pages WHERE doc_type<>'blank'").fetchone()[0]
+    pg_sum = con.execute("SELECT count(*) FROM pages WHERE doc_type<>'blank' AND page_summary IS NOT NULL AND page_summary<>''").fetchone()[0]
+    L.append(f"\n## Summary coverage (goal)\n"
+             f"- sources (items): {nit}; with per-source summary: {src_sum} "
+             f"(substantial: {sub_src}/{sub_tot} = {100*sub_src//max(sub_tot,1)}%)\n"
+             f"- non-blank pages: {npg}; with per-page summary: {pg_sum} "
+             f"({100*pg_sum//max(npg,1)}%)")
+    kinds_sub = con.execute("SELECT doc_subtype,count(*) FROM items WHERE doc_subtype IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 10").fetchall()
+    L.append("- top doc_subtypes: " + ", ".join(f"{k}:{n}" for k, n in kinds_sub))
+
     # (No.N) sequences
     seqs = con.execute("""SELECT reel,page_start,no_marker FROM items
         WHERE no_marker IS NOT NULL ORDER BY reel,page_start""").fetchall()
