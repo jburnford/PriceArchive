@@ -10,10 +10,29 @@ Atomic write: build into a tempfile, then os.replace over the real catalog.
 from __future__ import annotations
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 
 import duckdb
+import signals as S
+
+_ISO = re.compile(r"^(1[789]\d{2})(-(0[1-9]|1[0-2])(-(0[1-9]|[12]\d|3[01]))?)?$")
+
+
+def norm_date(d):
+    """Normalize a heuristic/LLM date to clean ISO (YYYY[-MM[-DD]]); reject
+    out-of-range / unparseable. Crucial metadata, so validate it."""
+    if not d:
+        return None
+    d = str(d).strip()
+    m = _ISO.match(d)
+    if m:
+        return d if 1750 <= int(m.group(1)) <= 1969 else None
+    pd = S.parse_date(d)                      # natural-language ('May 6, 1926', FR)
+    if pd and 1750 <= int(pd["date_iso"][:4]) <= 1969:
+        return pd["date_iso"]
+    return None
 
 ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / "build"
@@ -33,6 +52,7 @@ def main():
     fa = _load("finding_aid.jsonl")
     llm = {r["item_id"]: r for r in _load("letters_llm.jsonl")}
     psum = {r["doc_id"]: r for r in _load("page_llm.jsonl")}
+    dates = {r["item_id"]: r for r in _load("dates_llm.jsonl")}   # dedicated date pass
     BUILD.mkdir(exist_ok=True)
     fd, tmp = tempfile.mkstemp(suffix=".duckdb", dir=str(BUILD))
     os.close(fd)
@@ -70,8 +90,11 @@ def main():
         place = it.get("place") or e.get("llm_place")
         addressee = it.get("addressee") or e.get("llm_recipient")
         signatory = it.get("signatory") or e.get("llm_sender")
-        date_iso = it.get("date_iso") or e.get("llm_date")
-        src = "date:h" if it.get("date_iso") else ("date:llm" if e.get("llm_date") else "")
+        hd, ld = norm_date(it.get("date_iso")), norm_date(e.get("llm_date"))
+        # also accept a dedicated date-pass result if present
+        dd = norm_date(dates.get(it["item_id"], {}).get("date"))
+        date_iso = hd or ld or dd
+        src = "date:heuristic" if hd else ("date:llm" if ld else ("date:llm2" if dd else ""))
         kind, kind_src = it["kind"], "heuristic"
         if it["kind"] == "document" and (e.get("doc_subtype") or "").lower() in CORRESP:
             kind, kind_src = "letter", "llm-reclass"
