@@ -83,6 +83,15 @@ class Item:
             for b in sorted(blocks, key=lambda x: x["order"]):
                 yield b
 
+    def block_list(self) -> list[dict]:
+        """Flat per-item block list in reading order (index = position)."""
+        out = []
+        for doc, blocks in self.pages:
+            for b in sorted(blocks, key=lambda x: x["order"]):
+                out.append({"doc_id": doc, "order": b["order"],
+                            "category": b["category"], "text": b.get("text", "")})
+        return out
+
     def finalize(self) -> dict:
         txt = self.text()
         kind = self.kind
@@ -112,6 +121,7 @@ class Item:
             rec["confidence"] = 0.6
             rec["review_flag"] = (kind == "document" and len(self.pages) > 6)
             rec["review_reasons"] = ["long_document_run"] if rec["review_flag"] else []
+        rec["_blocks"] = self.block_list()
         return rec
 
     def _addressee(self):
@@ -270,9 +280,13 @@ def write_artifacts(items):
 def main():
     pages = [json.loads(l) for l in (BUILD / "pages.jsonl").open()]
     items = segment(pages)
-    with (BUILD / "items.jsonl").open("w", encoding="utf-8") as f:
+    with (BUILD / "items.jsonl").open("w", encoding="utf-8") as fi, \
+            (BUILD / "item_blocks.jsonl").open("w", encoding="utf-8") as fb:
         for it in items:
-            f.write(json.dumps(it, ensure_ascii=False) + "\n")
+            blocks = it.pop("_blocks", [])
+            fb.write(json.dumps({"item_id": it["item_id"], "blocks": blocks},
+                                ensure_ascii=False) + "\n")
+            fi.write(json.dumps(it, ensure_ascii=False) + "\n")
     write_artifacts(items)
     from collections import Counter
     kinds = Counter(it["kind"] for it in items)

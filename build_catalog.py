@@ -48,7 +48,8 @@ def main():
          f"{NIBI}/{p['doc_id']}.pdf/result.json") for p in pages])
 
     con.execute("""CREATE TABLE items(
-        item_id TEXT PRIMARY KEY, kind TEXT, reel TEXT, page_start INTEGER,
+        item_id TEXT PRIMARY KEY, kind TEXT, orig_kind TEXT, kind_src TEXT,
+        reel TEXT, page_start INTEGER,
         page_end INTEGER, n_pages INTEGER, n_chars BIGINT, language TEXT,
         date_iso TEXT, date_raw TEXT, date_precision TEXT, place TEXT,
         addressee TEXT, signatory TEXT, title TEXT, no_marker INTEGER,
@@ -56,25 +57,29 @@ def main():
         subject TEXT, summary TEXT, doc_subtype TEXT, meta_src TEXT,
         llm_enriched BOOLEAN, text_content TEXT)""")
 
+    # LLM-identified correspondence subtypes -> promote document items to letters
+    CORRESP = {"letter", "circular", "telegram", "memo", "memorandum", "note"}
+
     def row(it):
         e = llm.get(it["item_id"], {})
-        # heuristic metadata wins; LLM fills only the blanks
         place = it.get("place") or e.get("llm_place")
         addressee = it.get("addressee") or e.get("llm_recipient")
         signatory = it.get("signatory") or e.get("llm_sender")
         date_iso = it.get("date_iso") or e.get("llm_date")
-        src = []
-        if it.get("date_iso"): src.append("date:h")
-        elif e.get("llm_date"): src.append("date:llm")
-        return (it["item_id"], it["kind"], it["reel"], it["page_start"], it["page_end"],
+        src = "date:h" if it.get("date_iso") else ("date:llm" if e.get("llm_date") else "")
+        kind, kind_src = it["kind"], "heuristic"
+        if it["kind"] == "document" and (e.get("doc_subtype") or "").lower() in CORRESP:
+            kind, kind_src = "letter", "llm-reclass"
+        return (it["item_id"], kind, it["kind"], kind_src, it["reel"],
+                it["page_start"], it["page_end"],
                 it["n_pages"], it["n_chars"], it["language"], date_iso,
                 it.get("date_raw"), it.get("date_precision"), place,
                 addressee, signatory, it.get("title"), it.get("no_marker"),
                 it.get("confidence"), it.get("review_flag", False),
                 ", ".join(it.get("review_reasons", []) or []),
                 e.get("subject"), e.get("summary"), e.get("doc_subtype"),
-                " ".join(src), bool(e), it.get("text", ""))
-    con.executemany("INSERT INTO items VALUES (" + ",".join("?" * 25) + ")",
+                src, bool(e), it.get("text", ""))
+    con.executemany("INSERT INTO items VALUES (" + ",".join("?" * 27) + ")",
                     [row(it) for it in items])
 
     con.execute("CREATE TABLE item_pages(item_id TEXT, doc_id TEXT)")
