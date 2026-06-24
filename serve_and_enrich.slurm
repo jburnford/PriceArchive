@@ -4,7 +4,7 @@
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=12
 #SBATCH --mem=96G
-#SBATCH --time=02:30:00
+#SBATCH --time=01:30:00
 #SBATCH --output=/project/def-jic823/price/logs/enrich-%j.out
 
 # Phase B2: serve Qwen3-30B-A3B-Instruct-2507-FP8 on one H100 and run the

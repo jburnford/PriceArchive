@@ -12,9 +12,10 @@ in the output file. Runs ON Nibi against a local vLLM endpoint.
 from __future__ import annotations
 import argparse
 import json
-import sys
+import threading
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 SCHEMA = {
@@ -70,6 +71,7 @@ def main():
     ap.add_argument("--api", required=True); ap.add_argument("--model", required=True)
     ap.add_argument("--min-chars", type=int, default=150)
     ap.add_argument("--kinds", default="letter,document,table")
+    ap.add_argument("--workers", type=int, default=32)
     a = ap.parse_args()
     kinds = set(a.kinds.split(","))
 
@@ -79,23 +81,32 @@ def main():
         done = {json.loads(l)["item_id"] for l in open(a.out)}
     todo = [it for it in items if it["kind"] in kinds
             and it["n_chars"] >= a.min_chars and it["item_id"] not in done]
-    print(f"[enrich] {len(todo)} items to enrich ({len(done)} already done)", flush=True)
+    print(f"[enrich] {len(todo)} items to enrich ({len(done)} already done), "
+          f"{a.workers} workers", flush=True)
 
-    with open(a.out, "a", encoding="utf-8") as f:
-        for n, it in enumerate(todo, 1):
-            res = call(a.api, a.model, it.get("text", ""))
-            rec = {"item_id": it["item_id"], "kind": it["kind"],
-                   "subject": res.get("subject"), "summary": res.get("summary"),
-                   "doc_subtype": res.get("doc_subtype"),
-                   # metadata: only fill where heuristic was blank
-                   "llm_date": res.get("date"), "llm_place": res.get("place"),
-                   "llm_sender": res.get("sender"), "llm_recipient": res.get("recipient"),
-                   "error": res.get("_error")}
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-            if n % 50 == 0:
-                f.flush()
-                print(f"  ...{n}/{len(todo)}", flush=True)
-    print("[enrich] done", flush=True)
+    lock = threading.Lock()
+    n = 0
+
+    def work(it):
+        res = call(a.api, a.model, it.get("text", ""))
+        return {"item_id": it["item_id"], "kind": it["kind"],
+                "subject": res.get("subject"), "summary": res.get("summary"),
+                "doc_subtype": res.get("doc_subtype"),
+                "llm_date": res.get("date"), "llm_place": res.get("place"),
+                "llm_sender": res.get("sender"), "llm_recipient": res.get("recipient"),
+                "error": res.get("_error")}
+
+    with open(a.out, "a", encoding="utf-8") as f, \
+            ThreadPoolExecutor(max_workers=a.workers) as ex:
+        for fut in as_completed([ex.submit(work, it) for it in todo]):
+            rec = fut.result()
+            with lock:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                n += 1
+                if n % 100 == 0:
+                    f.flush()
+                    print(f"  ...{n}/{len(todo)}", flush=True)
+    print(f"[enrich] done {n}/{len(todo)}", flush=True)
 
 
 if __name__ == "__main__":
