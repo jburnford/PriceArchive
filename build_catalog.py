@@ -68,11 +68,13 @@ def main():
 
     con.execute("""CREATE TABLE finding_aid(
         series TEXT, sous_serie TEXT, title TEXT, date_start INTEGER,
-        date_end INTEGER, description TEXT, source_page TEXT)""")
+        date_end INTEGER, article_lo INTEGER, article_hi INTEGER,
+        description TEXT, source_page TEXT)""")
     if fa:
-        con.executemany("INSERT INTO finding_aid VALUES (?,?,?,?,?,?,?)", [
+        con.executemany("INSERT INTO finding_aid VALUES (?,?,?,?,?,?,?,?,?)", [
             (r.get("series"), r.get("sous_serie"), r.get("title"),
-             r.get("date_start"), r.get("date_end"), r.get("description"),
+             r.get("date_start"), r.get("date_end"), r.get("article_lo"),
+             r.get("article_hi"), r.get("description"),
              r.get("source_page")) for r in fa])
 
     con.execute("CREATE VIEW letters AS SELECT * FROM items WHERE kind='letter'")
