@@ -30,6 +30,7 @@ def main():
     pages = _load("pages.jsonl")
     items = _load("items.jsonl")
     fa = _load("finding_aid.jsonl")
+    llm = {r["item_id"]: r for r in _load("letters_llm.jsonl")}
     BUILD.mkdir(exist_ok=True)
     fd, tmp = tempfile.mkstemp(suffix=".duckdb", dir=str(BUILD))
     os.close(fd)
@@ -52,15 +53,29 @@ def main():
         date_iso TEXT, date_raw TEXT, date_precision TEXT, place TEXT,
         addressee TEXT, signatory TEXT, title TEXT, no_marker INTEGER,
         confidence DOUBLE, review_flag BOOLEAN, review_reasons TEXT,
-        text_content TEXT)""")
-    con.executemany("INSERT INTO items VALUES (" + ",".join("?" * 20) + ")", [
-        (it["item_id"], it["kind"], it["reel"], it["page_start"], it["page_end"],
-         it["n_pages"], it["n_chars"], it["language"], it.get("date_iso"),
-         it.get("date_raw"), it.get("date_precision"), it.get("place"),
-         it.get("addressee"), it.get("signatory"), it.get("title"),
-         it.get("no_marker"), it.get("confidence"), it.get("review_flag", False),
-         ", ".join(it.get("review_reasons", []) or []), it.get("text", ""))
-        for it in items])
+        subject TEXT, summary TEXT, doc_subtype TEXT, meta_src TEXT,
+        llm_enriched BOOLEAN, text_content TEXT)""")
+
+    def row(it):
+        e = llm.get(it["item_id"], {})
+        # heuristic metadata wins; LLM fills only the blanks
+        place = it.get("place") or e.get("llm_place")
+        addressee = it.get("addressee") or e.get("llm_recipient")
+        signatory = it.get("signatory") or e.get("llm_sender")
+        date_iso = it.get("date_iso") or e.get("llm_date")
+        src = []
+        if it.get("date_iso"): src.append("date:h")
+        elif e.get("llm_date"): src.append("date:llm")
+        return (it["item_id"], it["kind"], it["reel"], it["page_start"], it["page_end"],
+                it["n_pages"], it["n_chars"], it["language"], date_iso,
+                it.get("date_raw"), it.get("date_precision"), place,
+                addressee, signatory, it.get("title"), it.get("no_marker"),
+                it.get("confidence"), it.get("review_flag", False),
+                ", ".join(it.get("review_reasons", []) or []),
+                e.get("subject"), e.get("summary"), e.get("doc_subtype"),
+                " ".join(src), bool(e), it.get("text", ""))
+    con.executemany("INSERT INTO items VALUES (" + ",".join("?" * 25) + ")",
+                    [row(it) for it in items])
 
     con.execute("CREATE TABLE item_pages(item_id TEXT, doc_id TEXT)")
     con.executemany("INSERT INTO item_pages VALUES (?,?)",
@@ -82,7 +97,7 @@ def main():
     fts = False
     try:
         con.execute("INSTALL fts; LOAD fts;")
-        con.execute("PRAGMA create_fts_index('items','item_id','text_content','title','addressee','signatory', overwrite=1)")
+        con.execute("PRAGMA create_fts_index('items','item_id','text_content','title','addressee','signatory','subject','summary', overwrite=1)")
         con.execute("PRAGMA create_fts_index('pages','doc_id','text_content', overwrite=1)")
         fts = True
     except Exception as e:
