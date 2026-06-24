@@ -37,10 +37,16 @@ SCHEMA = {
 SYS = ("You are an archivist cataloguing the records of La Compagnie Price, a "
        "19th-20th century Quebec lumber company. The text is OCR of a single "
        "historical document (English or French), possibly imperfect. Return ONLY "
-       "JSON matching the schema. The summary is 1-3 sentences, factual, no "
-       "speculation. For date use ISO YYYY-MM-DD (or YYYY-MM / YYYY) if a clear "
-       "date is present, else null. sender/recipient/place from the document only; "
-       "null if not stated. Write the summary in English.")
+       "a JSON object with EXACTLY these keys: "
+       "\"subject\" (a short 3-8 word title), "
+       "\"summary\" (1-3 factual sentences in English, no speculation), "
+       "\"doc_subtype\" (one of: letter, circular, telegram, legal, report, "
+       "account, list, other), "
+       "\"date\" (ISO YYYY-MM-DD or YYYY-MM or YYYY if clearly present, else null), "
+       "\"place\" (place of origin or null), "
+       "\"sender\" (author/sender or null), "
+       "\"recipient\" (addressee or null). "
+       "Use null when the document does not state a field. Output only the JSON.")
 
 
 def call(api, model, text, retries=4):
@@ -49,7 +55,8 @@ def call(api, model, text, retries=4):
         "messages": [{"role": "system", "content": SYS},
                      {"role": "user", "content": text[:8000]}],
         "temperature": 0.0, "max_tokens": 400,
-        "guided_json": SCHEMA,
+        "response_format": {"type": "json_object"},
+        "guided_json": SCHEMA,            # honoured by vLLM builds that support it
     }).encode()
     for i in range(retries):
         try:
