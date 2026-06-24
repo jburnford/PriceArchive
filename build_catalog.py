@@ -28,9 +28,11 @@ def _load(name):
 
 def main():
     pages = _load("pages.jsonl")
-    items = _load("items.jsonl")
+    # prefer the LLM-refined item set (split + reclassified) when present
+    items = _load("items_refined.jsonl") or _load("items.jsonl")
     fa = _load("finding_aid.jsonl")
     llm = {r["item_id"]: r for r in _load("letters_llm.jsonl")}
+    psum = {r["doc_id"]: r for r in _load("page_llm.jsonl")}
     BUILD.mkdir(exist_ok=True)
     fd, tmp = tempfile.mkstemp(suffix=".duckdb", dir=str(BUILD))
     os.close(fd)
@@ -40,10 +42,13 @@ def main():
     con.execute("""CREATE TABLE pages(
         doc_id TEXT PRIMARY KEY, reel TEXT, page_num INTEGER, n_blocks INTEGER,
         n_chars BIGINT, language TEXT, doc_type TEXT, failure_label TEXT,
+        page_summary TEXT, page_kind TEXT,
         text_content TEXT, ocr_json_path TEXT)""")
-    con.executemany("INSERT INTO pages VALUES (?,?,?,?,?,?,?,?,?,?)", [
+    con.executemany("INSERT INTO pages VALUES (" + ",".join("?" * 12) + ")", [
         (p["doc_id"], p["reel"], p["page_num"], p["n_blocks"], p["n_chars"],
          p["language"], p["doc_type"], p["failure_label"],
+         psum.get(p["doc_id"], {}).get("page_summary"),
+         psum.get(p["doc_id"], {}).get("page_kind"),
          "\n".join(b["text"] for b in p["blocks"]),
          f"{NIBI}/{p['doc_id']}.pdf/result.json") for p in pages])
 
@@ -103,7 +108,7 @@ def main():
     try:
         con.execute("INSTALL fts; LOAD fts;")
         con.execute("PRAGMA create_fts_index('items','item_id','text_content','title','addressee','signatory','subject','summary', overwrite=1)")
-        con.execute("PRAGMA create_fts_index('pages','doc_id','text_content', overwrite=1)")
+        con.execute("PRAGMA create_fts_index('pages','doc_id','text_content','page_summary', overwrite=1)")
         fts = True
     except Exception as e:
         print("[catalog] FTS unavailable, LIKE fallback only:", str(e)[:80])
