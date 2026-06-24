@@ -20,10 +20,17 @@ mkdir -p "$BASE/logs"
 module --force purge
 module load StdEnv/2023 gcc/12.3 python/3.12 opencv/4.13.0 cuda/12.9
 source /project/def-jic823/infinity/venv/bin/activate
+# /home is over quota: every cache MUST live on /scratch, or vLLM/triton/inductor
+# writes blow up with 'Disk quota exceeded' during engine init.
+export HF_HOME=/project/def-jic823/models/hf_cache
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 export XDG_CACHE_HOME=/scratch/jic823/.cache/qwen
 export VLLM_CACHE_ROOT=$XDG_CACHE_HOME/vllm
-mkdir -p "$VLLM_CACHE_ROOT"
+export TRITON_CACHE_DIR=$XDG_CACHE_HOME/triton
+export TORCHINDUCTOR_CACHE_DIR=$XDG_CACHE_HOME/inductor
+export FLASHINFER_WORKSPACE_BASE=$XDG_CACHE_HOME/flashinfer
+export VLLM_NO_USAGE_STATS=1 DO_NOT_TRACK=1
+mkdir -p "$VLLM_CACHE_ROOT" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR" "$FLASHINFER_WORKSPACE_BASE"
 
 nvidia-smi -L
 PORT=$(python -c "import socket;s=socket.socket();s.bind((\"127.0.0.1\",0));print(s.getsockname()[1]);s.close()")
@@ -33,6 +40,7 @@ echo "[job] serving Qwen3 on $PORT -> $SLOG"
 vllm serve "$MODEL" \
   --host 127.0.0.1 --port "$PORT" --served-model-name qwen3 \
   --max-model-len 16384 --gpu-memory-utilization 0.90 \
+  --enforce-eager \
   --trust-remote-code > "$SLOG" 2>&1 &
 VLLM_PID=$!
 
